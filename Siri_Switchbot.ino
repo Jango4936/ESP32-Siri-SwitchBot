@@ -54,7 +54,6 @@ IPAddress local_IP(192, 168, 137, 29);
 IPAddress gateway(192, 168, 137, 1);
 IPAddress subnet(255, 255, 255, 0);
 
-
 // Toggle State
 bool toggleState = false;
 
@@ -96,7 +95,6 @@ const unsigned long toggleCooldown = 1000;  // 2-second cooldown period
 bool inCooldown = false;        // Indicates if the system is in cooldown
 bool gestureConfirmed = false;  // Indicates if a gesture has been confirmed
 
-
 enum SystemState {
   SIDLE,
   CONFIRMING_GESTURE,
@@ -122,10 +120,10 @@ ServoState servoState = IDLE;
 unsigned long actionStartTime = 0;
 const unsigned long actionDelay = 500;  // 500ms delay between servo actions
 
-
-
-
-
+// Wi-Fi Connection Variables
+bool wifiConnected = false;
+unsigned long wifiReconnectTime = 0;
+const unsigned long wifiReconnectInterval = 10000; // Try to reconnect every 10 seconds
 
 void setup() {
   Serial.begin(115200);
@@ -136,6 +134,7 @@ void setup() {
   lcd.createChar(0, humSymbol);
   lcd.createChar(1, tempSymbol);
 
+  // Initialize Wi-Fi
   setupWifi();
 
   // Attach Servos
@@ -151,16 +150,44 @@ void setup() {
 }
 
 void loop() {
-  server.handleClient();
+  if (WiFi.status() == WL_CONNECTED) {
+    if (!wifiConnected) {
+      // We just connected to Wi-Fi
+      Serial.println("Connected to Wi-Fi");
+      wifiConnected = true;
+      lcd.setCursor(0, 0);
+      lcd.print("Connected :D    ");
+      delay(2000);
+      lcd.setCursor(0, 0);
+      lcd.print("Hosting Server..");
+      delay(2000);
+      // Setup web server routes
+      server.on("/", handleRoot);
+      server.on("/toggle", HTTP_ANY, handleToggle);
+      server.begin();
+      Serial.println("HTTP server started");
+    }
+    server.handleClient();
+  } else {
+    if (wifiConnected) {
+      // We just got disconnected
+      Serial.println("Disconnected from Wi-Fi");
+      wifiConnected = false;
+    }
+    unsigned long currentMillis = millis();
+    if (currentMillis - wifiReconnectTime >= wifiReconnectInterval) {
+      wifiReconnectTime = currentMillis;
+      Serial.println("Attempting to reconnect to Wi-Fi...");
+      WiFi.disconnect();
+      WiFi.begin(ssid, password);
+    }
+  }
+
   handleUltraSonicSensor();
   handleServoState();
   handleDHT();
   handleLCDDisplay('1');
-  if (WiFi.status() != WL_CONNECTED) {
-    setupWifi();
-  }
 }
-
 
 void setupWifi() {
   // Setup Wi-Fi
@@ -169,31 +196,8 @@ void setupWifi() {
   }
 
   WiFi.begin(ssid, password);
-  Serial.print("Connecting to Wi-Fi");
-
-  if (WiFi.status() != WL_CONNECTED) {
-    handleDHT();
-    handleLCDDisplay('1');
-
-  } else {
-    Serial.println("\nConnected to Wi-Fi network with IP Address: ");
-    Serial.println(WiFi.localIP());
-    lcd.setCursor(0, 0);
-    lcd.print("Connected :D    ");
-    delay(2000);
-
-    lcd.setCursor(0, 0);
-    lcd.print("Hosting Server..");
-    delay(2000);
-    // Setup web server routes
-    server.on("/", handleRoot);
-    server.on("/toggle", HTTP_ANY, handleToggle);
-
-    server.begin();
-    Serial.println("HTTP server started");
-    lcd.clear();
-    handleLCDDisplay(3);
-  }
+  Serial.println("Attempting to connect to Wi-Fi");
+  wifiConnected = false; // We are attempting to connect
 }
 
 void handleRoot() {
@@ -284,8 +288,6 @@ void handleServoState() {
   }
 }
 
-
-
 void neutralServos() {
   s1.write(0);
   s2.write(180);
@@ -313,7 +315,6 @@ void handleDHT() {
 }
 
 void handleLCDDisplay(char options) {
-
   switch (options) {
     case '1':
       if (millis() - lastLCDUpdate >= updateInterval) {
@@ -328,8 +329,6 @@ void handleLCDDisplay(char options) {
         lcd.print(hum, 1);
         lcd.print("%");
         lcd.setCursor(0, 0);
-
-
 
         lastLCDUpdate = millis();
       }
@@ -346,7 +345,6 @@ void handleLCDDisplay(char options) {
       lcd.print(hum, 1);
       lcd.print("%");
       lcd.setCursor(0, 0);
-
 
       break;
     case '3':
